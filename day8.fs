@@ -24,101 +24,64 @@ type Pos = int64*int64*int64
 type Link = Pos*Pos*double
 type Circuit = Set<Pos>
 
-let Nope = (-1L,-1L,-1L)
-let FarApart : Link = Nope,Nope,Double.MaxValue
-
-let shortestDistance (found:Set<Pos*Pos>)(l: Pos list) =
-    let rec closest (shortest: Link) (pos:Pos) (l:Pos list) : Link =
-        let (_,_,shortestDistance) = shortest 
-        match l with
-        | [] -> shortest
-        | p::rest ->
-            let dist = if found.Contains(pos,p) then Double.MaxValue else dist pos p
-            let shortest = if dist < shortestDistance then pos,p,dist else shortest
-            if dist < (0L |> double) then printfn $"Overflow: {dist}"
-            closest shortest pos rest
-    let rec closestPair (shortest: Link) (l:Pos list) : Link =
-        match l with
-        | [] -> shortest
-        | [_] -> shortest
-        | p::rest ->
-            let shortest = closest shortest p rest
-            closestPair shortest rest
-    closestPair FarApart l
-
-shortestDistance Set.empty poss |> printfn "%A"
-
-let fullyContains (circuit: Circuit) ((p1,p2):Pos*Pos) =
-    circuit.Contains p1 && circuit.Contains p2
-
-let toCircuit ((p1,p2):Pos*Pos) =
-    (Set.empty.Add p1).Add p2 
+let rec allDist (dists:Link list list) (poss: Pos list) : Link list =
+    printfn "."
+    match poss with
+    | [] -> dists |> List.concat
+    | p::rest ->
+        let pdist = rest |> List.map (fun p2 -> p,p2,dist p p2)
+        allDist (pdist::dists) rest  
     
-let joinCircuits (circuits: Circuit list) =
-    let rec join (joined:Circuit list) (circuits:Circuit list) =
-        match circuits with
-        | [] -> joined
-        | [c] -> c::joined
-        | c::rest ->
-            let connected =
-                rest |> List.filter (fun o -> Set.intersect c o |> Set.isEmpty |> not)
-            if connected.IsEmpty then
-                join (c::joined) rest
-            else
-                let rest = rest |> List.filter (fun o -> Set.intersect c o |> Set.isEmpty)
-                let c = Set.unionMany (c::connected)
-                join (c::joined) rest
-    join List.empty circuits
+let dists =
+    allDist List.empty poss
+    |> List.sortBy (fun (_,_,dist) -> dist)
+    |> List.map (fun (p1,p2,pos) -> (p1,p2))
+    
 
-let rec pairN (n:int) (circuits: List<Circuit>) (pairs:(Pos*Pos) Set) (l:Pos list) =
-    printfn $"pairs: {pairs.Count}"
-    if n = 1 then pairs
-    else 
-        let shortest = shortestDistance pairs poss
-        let (p1,p2,_) = shortest
-        let pairs = pairs.Add (p1,p2)
-        let redundant = circuits
-                        |> List.filter (fun c -> fullyContains c (p1,p2))
-                        |> List.isEmpty |> not
-        if redundant then 
-           pairN n circuits pairs l
+printfn $"dists.size = {dists.Length}"
+
+type SetMatch =
+    | No
+    | Single
+    | Both
+
+let matchPos (circuit: Circuit) ((p1,p2):Pos*Pos) =
+    let c1 = circuit.Contains p1
+    let c2 = circuit.Contains p2
+    if c1 && c2 then Both
+    elif c1 || c2 then Single
+    else No
+
+let toSet ((p1,p2):Pos*Pos) = Set.ofList [p1;p2]
+
+let rec linkN (circuits: Circuit list) (n:int) ((link::rest):(Pos*Pos) list) =
+    printfn $"linkN (circuits={circuits} n={n} link={link}::..."
+    if n = 1 then circuits
+    else
+        let points = circuits |> List.map (fun c -> c,matchPos c link)
+        let both = points |> List.filter (fun (_,m) -> m = Both)
+        if both.Length > 0 then
+            linkN circuits (n-1) rest
         else
-           let circuit = toCircuit (p1,p2)
-           let circuits = circuit::circuits |> joinCircuits
-           pairN (n-1) circuits pairs l
-           
+            let circuit = toSet link
+            let touches = points |> List.filter (fun (_,m) -> m = Single)
+            if touches.IsEmpty then
+                let circuits = circuit::circuits 
+                linkN circuits (n-1) rest
+            else
+                let matchingCircuits = touches |> List.map (fun (link,_) -> link)
+                let circuit = Set.unionMany (circuit::matchingCircuits)
+                let nonMatching =
+                    points |> List.filter (fun (_,m) -> m = No)
+                    |> List.map (fun (c,_) -> c)
+                let circuits = circuit::nonMatching 
+                linkN circuits (n-1) rest 
         
-let pairs = pairN 10 List.empty Set.empty poss
+let circuits = linkN List.empty 1000 dists
 
-pairs |> printfn "%A"
+let sizes = circuits |> List.map _.Count |> List.sort |> List.rev 
 
+let largest3 = sizes |> List.take 3 
 
-let sweep (pairs: Set<Pos*Pos>) =
-    let pairs = pairs |> Set.toList
-                |> List.map (fun (p1,p2) -> (Set.empty.Add p1).Add p2)
-    let rec sweep (circuit:Circuit) (skipped:Circuit list) (rest:Circuit list) =
-        match rest with
-        | [] -> circuit,skipped
-        | p::rest when (Set.intersect circuit p).IsEmpty ->
-            sweep circuit (p::skipped) rest
-        | p::rest ->
-            let circuit = Set.union circuit p
-            sweep circuit skipped rest
-    let rec sweepAll (swept: Circuit list) (circuits:Circuit list) =
-        match circuits with
-        | [] -> swept
-        | c::rest ->
-            let c,rest = sweep c List.empty rest
-            sweepAll (c::swept) rest
-    sweepAll List.empty pairs 
-
-let circuits = sweep pairs
-let sizes = circuits |> List.map (_.Count )
-
-sizes |> printfn "%A"
-
-let answer = sizes |> List.sort |> List.rev |> List.take 3 |> List.reduce (*)
-
-printfn $"Answer 1: {answer}"
-
-    
+printfn $"circuits = {circuits}"
+printfn $"sizes = {sizes} largest3={largest3} answer={largest3 |> List.reduce (*)}"
