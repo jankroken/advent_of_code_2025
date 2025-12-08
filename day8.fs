@@ -2,7 +2,7 @@
 open System.IO
 open System.Diagnostics
 
-let filename = "/tmp/aoc/task8-t.txt"
+let filename = "/tmp/aoc/task8.txt"
 
 let input = File.ReadAllLines filename |> Seq.toList 
 
@@ -22,6 +22,8 @@ dist (162L,817L,812L) (425L,690L,689L) |> printfn "%A"
     
 type Pos = int64*int64*int64
 type Link = Pos*Pos*double
+type Circuit = Set<Pos>
+
 let Nope = (-1L,-1L,-1L)
 let FarApart : Link = Nope,Nope,Double.MaxValue
 
@@ -46,20 +48,50 @@ let shortestDistance (found:Set<Pos*Pos>)(l: Pos list) =
 
 shortestDistance Set.empty poss |> printfn "%A"
 
-let rec pairN (n:int) (pairs:(Pos*Pos) Set) (l:Pos list) =
+let fullyContains (circuit: Circuit) ((p1,p2):Pos*Pos) =
+    circuit.Contains p1 && circuit.Contains p2
+
+let toCircuit ((p1,p2):Pos*Pos) =
+    (Set.empty.Add p1).Add p2 
+    
+let joinCircuits (circuits: Circuit list) =
+    let rec join (joined:Circuit list) (circuits:Circuit list) =
+        match circuits with
+        | [] -> joined
+        | [c] -> c::joined
+        | c::rest ->
+            let connected =
+                rest |> List.filter (fun o -> Set.intersect c o |> Set.isEmpty |> not)
+            if connected.IsEmpty then
+                join (c::joined) rest
+            else
+                let rest = rest |> List.filter (fun o -> Set.intersect c o |> Set.isEmpty)
+                let c = Set.unionMany (c::connected)
+                join (c::joined) rest
+    join List.empty circuits
+
+let rec pairN (n:int) (circuits: List<Circuit>) (pairs:(Pos*Pos) Set) (l:Pos list) =
     printfn $"pairs: {pairs.Count}"
-    let shortest = shortestDistance pairs poss
-    if pairs.Count = n then pairs
+    if n = 1 then pairs
     else 
-        let (p1,p2,dist) = shortest
+        let shortest = shortestDistance pairs poss
+        let (p1,p2,_) = shortest
         let pairs = pairs.Add (p1,p2)
-        pairN n pairs l
-                
-let pairs = pairN 10 Set.empty poss
+        let redundant = circuits
+                        |> List.filter (fun c -> fullyContains c (p1,p2))
+                        |> List.isEmpty |> not
+        if redundant then 
+           pairN n circuits pairs l
+        else
+           let circuit = toCircuit (p1,p2)
+           let circuits = circuit::circuits |> joinCircuits
+           pairN (n-1) circuits pairs l
+           
+        
+let pairs = pairN 10 List.empty Set.empty poss
 
 pairs |> printfn "%A"
 
-type Circuit = Set<Pos>
 
 let sweep (pairs: Set<Pos*Pos>) =
     let pairs = pairs |> Set.toList
